@@ -7,7 +7,7 @@ const App = {
   specYaw: 0, specPitch: .2, menuT: 0, vmLight: 1, lastFireT: -9,
   async boot() {
     const bar = $('#loadbar i'), txt = $('#loadtxt');
-    const prog = (t, f) => { txt.textContent = t; bar.style.width = Math.round(f * 100) + '%'; };
+    const prog = (t, f) => { txt.textContent = t; bar.style.transform = 'scaleX(' + clamp(f, 0, 1).toFixed(3) + ')'; };
     prog('Starting renderer', .02);
     await new Promise(r => setTimeout(r, 30));
     const S = Settings.v;

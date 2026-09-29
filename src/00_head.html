@@ -34,7 +34,7 @@ input,select{font:inherit;color:inherit}
 .logo .two{display:inline-grid;place-items:center;width:.95em;height:.95em;background:var(--t);color:#111;border-radius:6px;font-size:.8em}
 .logo small{display:block;font-family:var(--f);font-weight:500;font-size:13px;letter-spacing:.35em;color:var(--dim);margin-top:10px}
 #loadbar{width:min(420px,70vw);height:4px;background:rgba(255,255,255,.08);border-radius:2px;overflow:hidden}
-#loadbar>i{display:block;height:100%;width:0;background:linear-gradient(90deg,var(--t),var(--gold));transition:width .15s}
+#loadbar>i{display:block;height:100%;width:100%;transform:scaleX(0);transform-origin:left center;background:linear-gradient(90deg,var(--t),var(--gold));transition:transform .15s}
 #loadtxt{font-size:13px;color:var(--dim);letter-spacing:.08em;text-transform:uppercase;min-height:1.2em}
 
 /* ---------- menu ---------- */
