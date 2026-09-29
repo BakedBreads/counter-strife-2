@@ -20,7 +20,10 @@ catch (e) {
 }
 const safe = s => s.replace(/<\/script/gi, '<\\/script');
 const three = safe(read(path.join(ven, 'three.min.js'))), peer = safe(read(path.join(ven, 'peer.min.js')));
-const html = head + body + `<script>${three}</script>\n<script>${peer}</script>\n<script>${safe(game)}</script>\n</body>\n</html>\n`;
+const addons = safe(read(path.join(ven, 'addons.min.js')));
+// the rigged agent model (three.js example asset "Soldier", Mixamo rig) travels inside the page as base64
+const agent = fs.readFileSync(path.join(ven, 'models', 'Soldier.glb')).toString('base64');
+const html = head + body + `<script>${three}</script>\n<script>${addons}</script>\n<script>${peer}</script>\n<script>window.__AGENT_GLB="${agent}";</script>\n<script>${safe(game)}</script>\n</body>\n</html>\n`;
 fs.writeFileSync(path.join(root, 'counter-strife-2.html'), html);
 fs.mkdirSync(path.join(root, 'dist'), { recursive: true });
 fs.writeFileSync(path.join(root, 'dist', 'index.html'), html);

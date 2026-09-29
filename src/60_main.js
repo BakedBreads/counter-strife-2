@@ -39,6 +39,8 @@ const App = {
     this.applySettings();
     prog('Generating textures', .06);
     await Tex.build(r, (t, f) => prog(t, .06 + f * .5));
+    prog('Loading agents', .57); await new Promise(r2 => setTimeout(r2, 0));
+    try { await Agents.load(); } catch (e) { console.warn('agent model failed, using fallback models', e); }
     prog('Building de_dustline', .6); await new Promise(r2 => setTimeout(r2, 0));
     World.build(this.scene);
     prog('Computing bot navigation', .72); await new Promise(r2 => setTimeout(r2, 0));
@@ -47,6 +49,7 @@ const App = {
     FX.init(this.scene);
     prog('Rendering weapon icons', .86); await new Promise(r2 => setTimeout(r2, 0));
     Models.makeIcons(r);
+    if (Agents.ready) Agents.makePortraits(r);
     prog('Warming up shaders', .94); await new Promise(r2 => setTimeout(r2, 0));
     HUD.init(); Menu.init(); Input.init(r.domElement);
     Input.onKey = (code, e) => this.onKey(code, e);
@@ -385,18 +388,21 @@ const App = {
       const deadP = p.alive ? 0 : clamp((now - p.deathT) / .7, 0, 1);
       const w = p.active;
       Models.setCharGun(ch, p.alive && w ? w.id : null, w ? w.skin : 'default', p.knifeType);
-      Models.animChar(ch, { speed: Math.hypot(p.vel.x, p.vel.z), crouch: p.duckAmt, air: !p.onGround, pitch: p.pitch, dead: deadP, planting: p.planting || p.defusing, cat: w ? w.def.cat : 'rifle', dt });
+      const fwdS = -Math.sin(p.yaw) * p.vel.x - Math.cos(p.yaw) * p.vel.z, sideS = Math.cos(p.yaw) * p.vel.x - Math.sin(p.yaw) * p.vel.z;
+      Models.animChar(ch, { speed: Math.hypot(p.vel.x, p.vel.z), fwdSpeed: fwdS, sideSpeed: sideS, crouch: p.duckAmt, air: !p.onGround, pitch: p.pitch, dead: deadP, planting: p.planting || p.defusing, cat: w ? w.def.cat : 'rifle', dt });
       if (!p.alive) ch.root.rotation.y = p.yaw;
       // mark enemies the local player can see for the radar
       if (p.alive && G.local && G.local.alive && G.local.isEnemy(p)) { if ((p._visT = (p._visT || 0) - dt) <= 0) { p._visT = .15; if (World.los(G.local.eye(_v3), _v4.set(p.pos.x, p.pos.y + 1.4, p.pos.z)) && !G.smokeBlocks(G.local.eye(_v3), _v4)) p.spotLocal = now; } }
     }
   },
   /* ---------- viewmodel ---------- */
-  clearVM() { if (this.vm) { this.vmCam.remove(this.vm); this.vm = null; } this.vmKey = ''; },
+  clearVM() { if (this.vm) { this.vmCam.remove(this.vm); this.vm = null; } if (this.vmArms) { this.vmCam.remove(this.vmArms.root); this.vmArms = null; } this.vmKey = ''; },
   vmPointWorld(which) {
     const out = new V3();
     if (!this.vm) return this.camera.position.clone();
-    const gun = this.vm.userData.gun, node = gun.userData[which] || gun.userData.muzzle;
+    const gun = this.vm.userData.gun, vp = Game.viewPlayer();
+    let node = gun.userData[which] || gun.userData.muzzle;
+    if (which === 'muzzle' && gun.userData.muzzle2 && vp && (vp.shotCount || 0) % 2 === 0) node = gun.userData.muzzle2;
     this.vm.updateMatrixWorld(true);
     node.getWorldPosition(out); // in vmCam space (vmCam sits at the origin with identity rotation)
     // take it into the world camera space: viewmodel FOV differs slightly, which is fine for effects
@@ -406,7 +412,7 @@ const App = {
     const G = Game, lp = G.local, S = Settings.v, now = G.time;
     const vp = G.viewPlayer();
     const show = vp && vp.alive && !this.thirdPerson && vp.active && !(vp.zoom > 0 && vp.active.def.scope);
-    if (!show) { if (this.vm) this.vm.visible = false; return; }
+    if (!show) { if (this.vm) this.vm.visible = false; if (this.vmArms) this.vmArms.root.visible = false; return; }
     const w = vp.active, key = w.uid + '|' + w.skin + '|' + vp.team + '|' + (w.id === 'knife' ? vp.knifeType : '');
     if (key !== this.vmKey) {
       this.clearVM(); this.vmKey = key;
@@ -414,13 +420,14 @@ const App = {
       const fl = new THREE.Mesh(new THREE.PlaneGeometry(.22, .22), new THREE.MeshBasicMaterial({ map: Tex.sprites.flash, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false }));
       fl.visible = false; this.vm.userData.gun.userData.muzzle.add(fl); this.vm.userData.flash = fl;
       this.vmCam.add(this.vm);
+      if (typeof Agents !== 'undefined' && Agents.ready) { this.vmArms = Agents.viewArms(vp.team); this.vmCam.add(this.vmArms.root); }
     }
     const vm = this.vm; vm.visible = true;
     const gun = vm.userData.gun, d = w.def, cat = d.cat;
     // base placement
-    const base = { rifle: [.19, -.18, -.46], smg: [.18, -.17, -.42], mg: [.2, -.19, -.48], shotgun: [.19, -.18, -.46], sniper: [.19, -.18, -.48], pistol: [.16, -.15, -.36], knife: [.17, -.17, -.38], grenade: [.16, -.17, -.34], c4: [.05, -.21, -.36], zeus: [.16, -.15, -.36] }[cat] || [.18, -.17, -.44];
-    if (d.m && d.m.bpup) { base[2] -= .12; base[1] -= .01; }
-    let px = base[0], py = base[1], pz = base[2], rx = 0, ry = .035, rz = 0;
+    // camera-space placement per weapon family [x, y, z, yaw] (tuned so the hands reach grip and handguard)
+    const base = Agents.vmBase(d);
+    let px = base[0], py = base[1], pz = base[2], rx = 0, ry = base[3], rz = 0;
     // bob & sway
     const sp = Math.hypot(vp.vel.x, vp.vel.z), moving = vp.onGround ? clamp(sp / 5, 0, 1.2) : 0;
     this.vmBob += dt * (6 + sp * 1.2) * (moving > .05 ? 1 : 0);
@@ -476,6 +483,7 @@ const App = {
     if (cat === 'c4' && vp.planting) { py -= .05; pz += .05; rx += .5 + Math.sin(now * 20) * .02; }
     if (cat === 'zeus' && w.clip === 0) py -= .02;
     vm.position.set(px, py, pz); vm.rotation.set(rx, ry, rz);
+    if (this.vmArms) { this.vmArms.root.visible = vm.visible; if (vm.visible) { vm.updateMatrixWorld(true); Agents.poseViewArms(this.vmArms, gun, cat); } }
     // viewmodel light follows the sun, dimmed in shadow
     if ((this._vmlt = (this._vmlt || 0) - dt) <= 0) {
       this._vmlt = .12; const e = vp.eye(_v3);

@@ -45,7 +45,7 @@ const Models = {
       case 'web': fill(c[0]); g.strokeStyle = c[1]; g.lineWidth = 2; for (let k = 0; k < 6; k++) { const x0 = R() * S, y0 = R() * S; for (let a = 0; a < 10; a++) { g.beginPath(); g.moveTo(x0, y0); g.lineTo(x0 + Math.cos(a / 10 * TAU) * 120, y0 + Math.sin(a / 10 * TAU) * 120); g.stroke(); } for (let r = 12; r < 120; r += 14) { g.beginPath(); g.arc(x0, y0, r, 0, TAU); g.stroke(); } } break;
       case 'splash': fill(c[2]); for (let k = 0; k < 60; k++) { g.fillStyle = c[k % 2 ? 0 : 1]; if (k % 7 === 0) g.fillStyle = c[3]; g.beginPath(); const x = R() * S, y = R() * S; for (let p = 0; p < 9; p++) { const a = p / 9 * TAU, r = 6 + R() * 22; p ? g.lineTo(x + Math.cos(a) * r, y + Math.sin(a) * r) : g.moveTo(x + Math.cos(a) * r, y + Math.sin(a) * r); } g.fill(); } break;
     }
-    const t = new THREE.CanvasTexture(cv); t.colorSpace = THREE.SRGBColorSpace; t.wrapS = t.wrapT = THREE.RepeatWrapping; t.anisotropy = 4;
+    const t = new THREE.CanvasTexture(cv); t.colorSpace = THREE.SRGBColorSpace; t.wrapS = t.wrapT = THREE.RepeatWrapping; t.anisotropy = 4; t.repeat.set(6, 6);
     return this.skinTex[id] = t;
   },
   skinMat(id) {
@@ -59,98 +59,19 @@ const Models = {
 
   /* ---------- guns ---------- */
   gun(id, skinId, team, knifeType) {
-    const w = W[id]; const g = new THREE.Group(); g.userData.id = id;
-    const m = w.m, sk = this.skinMat(skinId);
-    const lift = c => { const k = new THREE.Color(c); k.offsetHSL(0, 0, .07); return k.getHex(); };
-    const body = sk || this.mat(lift(m.col || 0x2a2a2a), .42, .55), fur = sk || this.mat(lift(m.fur || 0x2a2a2a), m.stock === 'wood' ? .6 : .5, m.stock === 'wood' ? .05 : .35);
-    const metal = this.mat(0x2c2e31, .32, .85), grip = this.mat(0x1f1f20, .75, .1);
+    const w = W[id], m = w.m, sk = this.skinMat(skinId);
+    if (m.kind !== 'knife' && m.kind !== 'grenade' && m.kind !== 'c4' && m.kind !== 'zeus') { const g = Guns.build(id, sk); g.userData.id = id; return g; }
+    const g = new THREE.Group(); g.userData.id = id;
+    const metal = this.mat(0x18191b, .35, .85), grip = this.mat(0x151515, .8, .1);
     const muzzle = new THREE.Object3D(); g.add(muzzle); g.userData.muzzle = muzzle;
     const eject = new THREE.Object3D(); g.add(eject); g.userData.eject = eject;
-    let foreZ = -.2;
-    if (m.kind === 'pistol') foreZ = this.buildPistol(g, w, m, body, fur, metal, grip);
-    else if (m.kind === 'knife') this.buildKnife(g, team, sk, knifeType);
+    if (m.kind === 'knife') this.buildKnife(g, team, sk, knifeType);
     else if (m.kind === 'grenade') this.buildNade(g, m.g);
     else if (m.kind === 'c4') this.buildC4(g);
-    else if (m.kind === 'zeus') { this.box(g, .03, .05, .12, 0, .04, -.03, this.mat(0xe7c21e, .5, .1)); this.box(g, .028, .09, .04, 0, -.02, .02, grip, -.2); this.cyl(g, .012, .012, .04, 0, .045, -.11, metal, 'z'); muzzle.position.set(0, .045, -.14); }
-    else foreZ = this.buildLong(g, w, m, body, fur, metal, grip);
-    g.userData.foreZ = foreZ;
+    else { this.box(g, .03, .05, .12, 0, .04, -.03, this.mat(0xe7c21e, .5, .1)); this.box(g, .028, .09, .04, 0, -.02, .02, grip, -.2); this.cyl(g, .012, .012, .04, 0, .045, -.11, metal, 'z'); muzzle.position.set(0, .045, -.14); }
+    g.userData.foreZ = -.2;
     g.traverse(o => { if (o.isMesh) { o.castShadow = true; } });
     return g;
-  },
-  buildPistol(g, w, m, body, fur, metal, grip) {
-    const L = m.len, st = m.style;
-    const slideH = st === 'deagle' ? .042 : .034, slideW = st === 'deagle' ? .036 : .03;
-    const slide = this.box(g, slideW, slideH, L, 0, .045, -L / 2 + .035, body);
-    g.userData.slide = slide;
-    this.box(g, slideW * .9, .022, L * .82, 0, .02, -L * .41 + .02, fur);
-    this.box(g, .028, .105, .046, 0, -.042, .018, grip, -.22);
-    const mag = this.box(g, .024, .02, .04, 0, -.095, .03, metal, -.22); g.userData.mag = mag;
-    this.box(g, .006, .03, .035, 0, .002, -.035, metal); // trigger guard
-    this.box(g, .006, .008, .006, 0, .066, -L + .045, metal); // front sight
-    this.box(g, .018, .008, .006, 0, .066, .02, metal); // rear sight
-    let tip = -L + .035;
-    if (st === 'usp') { this.cyl(g, .016, .016, .13, 0, .045, tip - .065, metal, 'z', 16); tip -= .13; }
-    if (st === 'tec9') { this.cyl(g, .016, .016, .1, 0, .04, -L + .02, metal, 'z', 10); this.box(g, .02, .08, .03, 0, -.03, -.075, metal); tip = -L - .03; }
-    if (st === 'deagle') this.box(g, .012, .008, L * .9, 0, .07, -L / 2 + .04, body);
-    g.userData.muzzle.position.set(0, .045, tip);
-    g.userData.eject.position.set(.02, .055, -.02);
-    return -.05;
-  },
-  buildLong(g, w, m, body, fur, metal, grip) {
-    const L = m.len, st = m.style, bp = m.bpup;
-    const zr0 = bp ? .3 : .1, zr1 = bp ? -L * .3 : -L * .42, zh1 = zr1 - (bp ? L * .28 : L * .33);
-    // receiver
-    const rec = this.box(g, .052, .082, zr0 - zr1, 0, .055, (zr0 + zr1) / 2, body);
-    if (st === 'p90') { rec.scale.set(1.2, 1.4, 1); this.box(g, .05, .03, .38, 0, .115, -.05, this.mat(0x6b7d5a, .2, .1, { transparent: true, opacity: .75 })); }
-    // handguard
-    this.box(g, .058, .064, zr1 - zh1, 0, .045, (zr1 + zh1) / 2, fur);
-    // barrel
-    const bl = m.barrel; const by = .06;
-    this.cyl(g, .011, .011, bl, 0, by, zh1 - bl / 2, metal, 'z', 10);
-    let tip = zh1 - bl;
-    if (st === 'ak') { this.cyl(g, .008, .008, (zr1 - zh1) * .9, 0, .095, (zr1 + zh1) / 2, metal, 'z', 8); this.box(g, .012, .045, .012, 0, .085, zh1 - bl * .8, metal); this.cyl(g, .014, .014, .03, 0, by, tip + .015, metal, 'z', 8); }
-    if (st === 'm4' || st === 'm4s') { this.box(g, .008, .05, .012, 0, .09, zh1 + .01, metal); this.box(g, .03, .02, .03, 0, .105, zr0 - .03, metal); }
-    if (m.sil || w.sil) { this.cyl(g, .019, .019, .19, 0, by, tip - .095, metal, 'z', 16); tip -= .19; }
-    else if (m.kind !== 'shotgun') { this.cyl(g, .015, .013, .045, 0, by, tip - .02, metal, 'z', 8); tip -= .04; }
-    // grip + trigger guard
-    if (st !== 'p90') this.box(g, .034, .1, .048, 0, -.035, .02, grip, -.3);
-    this.box(g, .006, .028, .05, 0, .0, -.035, metal);
-    // magazine
-    const magZ = bp ? .16 : zr1 + .075;
-    const mg = new THREE.Group(); g.add(mg); g.userData.mag = mg;
-    const magM = this.mat(0x1d1d1f, .6, .3);
-    if (m.mag === 'curved') { for (let k = 0; k < 3; k++) this.box(mg, .032, .07, .055, 0, -.02 - k * .06, magZ + .004 + k * k * .012, st === 'ak' ? this.mat(0x5a3a1c, .55, .2) : magM, k * .22); }
-    else if (m.mag === 'straight') this.box(mg, .03, .14, .05, 0, -.05, magZ, magM, .08);
-    else if (m.mag === 'box') this.box(mg, .05, .1, .1, 0, -.03, magZ, magM);
-    else if (m.mag === 'pistol') { this.box(mg, .026, .14, .036, 0, -.1, .035, magM, -.3); }
-    else if (m.mag === 'tube') this.cyl(mg, .014, .014, (zr1 - zh1) * 1.3, 0, .022, (zr1 + zh1) / 2 - .05, metal, 'z', 10);
-    // stock
-    const stockM = m.stock === 'wood' ? fur : body;
-    if (m.stock === 'wood' || m.stock === 'solid') { const s = this.box(g, .045, .075, .25, 0, .03, zr0 + .125, stockM, .12); this.box(g, .05, .12, .02, 0, .005, zr0 + .25, grip, .12); }
-    else if (m.stock === 'skeleton') { this.box(g, .012, .012, .24, 0, .07, zr0 + .12, metal); this.box(g, .012, .012, .24, 0, -.01, zr0 + .12, metal, .12); this.box(g, .03, .1, .02, 0, .03, zr0 + .24, grip); }
-    else if (m.stock === 'wire') { this.box(g, .006, .006, .2, .02, .03, zr0 + .1, metal); this.box(g, .006, .006, .2, -.02, .03, zr0 + .1, metal); }
-    else if (m.stock === 'fold') this.box(g, .012, .05, .2, .04, .03, zr0 - .05, metal);
-    else if (m.stock === 'awp') { this.box(g, .05, .09, .32, 0, .02, zr0 + .15, stockM, .08); this.box(g, .052, .14, .03, 0, -.01, zr0 + .31, grip, .08); }
-    else if (bp) this.box(g, .05, .11, .03, 0, .01, zr0 + .01, grip);
-    // extras
-    if (m.rail) this.box(g, .024, .012, (zr0 - zr1) * .9, 0, .1, (zr0 + zr1) / 2, metal);
-    if (m.handle) { this.box(g, .014, .03, (zr0 - zr1) * .9, 0, .12, (zr0 + zr1) / 2, body); this.box(g, .014, .04, .015, 0, .1, zr1 + .02, body); }
-    if (m.scope) {
-      const r = m.scope === 3 ? .026 : m.scope === 2 ? .021 : .017, len = m.scope === 3 ? .3 : m.scope === 2 ? .24 : .15, sy = .125;
-      const sc = this.mat(0x121314, .3, .7);
-      this.cyl(g, r, r, len, 0, sy, (zr0 + zr1) / 2 - .02, sc, 'z', 16);
-      this.cyl(g, r * 1.35, r, .05, 0, sy, (zr0 + zr1) / 2 - .02 - len / 2, sc, 'z', 16);
-      this.cyl(g, r, r * 1.2, .04, 0, sy, (zr0 + zr1) / 2 - .02 + len / 2, sc, 'z', 16);
-      this.box(g, .01, .03, .02, 0, .1, (zr0 + zr1) / 2 - len * .3, metal); this.box(g, .01, .03, .02, 0, .1, (zr0 + zr1) / 2 + len * .25, metal);
-      const lens = this.mat(0x3a6fa0, .1, .9, { emissive: 0x0a1a2a }); this.cyl(g, r * 1.2, r * 1.2, .002, 0, sy, (zr0 + zr1) / 2 - .02 - len / 2 - .026, lens, 'z', 16);
-    }
-    if (w.bolt) { this.cyl(g, .005, .005, .05, .035, .06, zr0 - .02, metal, 'x', 6); const k = new THREE.Mesh(new THREE.SphereGeometry(.011, 8, 6), metal); k.position.set(.062, .06, zr0 - .02); g.add(k); g.userData.bolt = k; }
-    if (m.pump) { const p = this.box(g, .04, .04, .12, 0, .025, zh1 + .12, fur); g.userData.pump = p; }
-    if (st === 'negev') { this.box(g, .07, .05, .2, 0, .02, zr1 - .05, body); this.box(g, .008, .008, .15, .03, -.02, zh1 + .02, metal, .5); this.box(g, .008, .008, .15, -.03, -.02, zh1 + .02, metal, .5); }
-    if (st === 'galil') this.box(g, .01, .03, .06, 0, .1, zh1 + .02, metal);
-    g.userData.muzzle.position.set(0, by, tip);
-    g.userData.eject.position.set(.03, .07, (zr0 + zr1) / 2);
-    return (zr1 + zh1) / 2;
   },
   buildKnife(g, team, sk, knifeType) {
     const type = knifeType || Loadout.v.knife || 'default';
@@ -216,6 +137,7 @@ const Models = {
     return { top: this.mat(0x8a6b43, .85, .02), pants: this.mat(0x5a4731, .85, .02), vest: this.mat(0x46382a, .75, .05), head: this.mat(0x1f1c19, .9, 0), skin: this.mat(0xb88964, .7, 0), boots: this.mat(0x2a241d, .7, .05), glove: this.mat(0x2b2723, .8, .05), band: this.mat(0xe5a43f, .6, 0, { emissive: 0x4a3010 }), mask: this.mat(0x1f1c19, .9, 0) };
   },
   character(team) {
+    if (typeof Agents !== 'undefined' && Agents.ready) return Agents.character(team);
     const M = this.teamMats(team);
     const root = new THREE.Group(); root.rotation.order = 'YXZ';
     const pelvis = new THREE.Group(); pelvis.position.y = .95; root.add(pelvis);
@@ -270,11 +192,12 @@ const Models = {
     if (!id) return;
     const g = this.gun(id, skin, ch.team, knifeType);
     const cat = W[id].cat;
-    if (cat === 'grenade' || cat === 'c4') { g.position.set(.04, -.1, .05); }
+    if (!ch.agent && (cat === 'grenade' || cat === 'c4')) { g.position.set(.04, -.1, .05); }
     ch.gun = g; ch.gunMount.add(g);
   },
   // st: {speed, crouch(0..1), air, pitch, dead(0..1 progress), planting, moveAng, dt}
   animChar(ch, st) {
+    if (ch.agent) { Agents.animate(ch, st); return; }
     const walk = clamp(st.speed / 5, 0, 1.2);
     ch.phase += st.speed * st.dt * 1.9;
     const s = Math.sin(ch.phase), c = st.crouch;
@@ -310,6 +233,7 @@ const Models = {
   viewModel(id, skin, team, knifeType) {
     const grp = new THREE.Group();
     const gun = this.gun(id, skin, team, knifeType); grp.add(gun);
+    if (typeof Agents !== 'undefined' && Agents.ready) { gun.traverse(o => { if (o.isMesh) o.castShadow = false; }); grp.userData.gun = gun; return grp; }
     const M = this.teamMats(team), cat = W[id].cat;
     gun.traverse(o => { if (o.isMesh) o.castShadow = false; });
     const arms = new THREE.Group(); gun.add(arms);

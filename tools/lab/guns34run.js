@@ -1,0 +1,25 @@
+window.__ids = ['cz75a', 'revolver', 'mp5sd', 'ak47', 'm4a1s', 'awp', 'deagle', 'p90', 'aug', 'elite'];
+window.__yaw = -0.55; window.__camY = .9;
+for (const f of ['10_util.js', '13_textures.js', '20_weapons.js', '30_models.js', '33_guns.js']) await new Promise((res, rej) => { const s = document.createElement('script'); s.src = '/src/' + f; s.onload = res; s.onerror = rej; document.head.appendChild(s); });
+const r = new THREE.WebGLRenderer({ antialias: true }); r.setSize(320, 150); r.outputColorSpace = THREE.SRGBColorSpace; r.toneMapping = THREE.ACESFilmicToneMapping;
+const scene = new THREE.Scene(); scene.background = new THREE.Color(0x5b6570);
+const envS = new THREE.Scene(); envS.add(new THREE.Mesh(new THREE.SphereGeometry(10, 16, 8), new THREE.MeshBasicMaterial({ side: THREE.BackSide, color: 0xb8c4d0 })));
+scene.environment = new THREE.PMREMGenerator(r).fromScene(envS).texture; scene.environmentIntensity = .9;
+scene.add(new THREE.HemisphereLight(0xffffff, 0x445566, 1.3)); const d = new THREE.DirectionalLight(0xffffff, 2.6); d.position.set(3, 4, 2); scene.add(d);
+const cam = new THREE.OrthographicCamera(-1, 1, 1, -1, .01, 10);
+const ids = window.__ids || Object.keys(W).filter(k => W[k].slot <= 2);
+const cols = 5, cw = 320, ch = 150, rows = Math.ceil(ids.length / cols);
+const cv = document.createElement('canvas'); cv.width = cols * cw; cv.height = rows * ch; document.body.appendChild(cv); const g2 = cv.getContext('2d');
+ids.forEach((id, k) => {
+  const g = Models.gun(id, window.__skin || 'default', 'CT'); scene.add(g); g.rotation.y = window.__yaw || 0; g.updateMatrixWorld(true);
+  const bb = new THREE.Box3().setFromObject(g), size = bb.getSize(new THREE.Vector3()), ctr = bb.getCenter(new THREE.Vector3());
+  const sw = Math.max(size.z, size.y * cw / ch) * .56, sh = sw * ch / cw;
+  cam.left = -sw; cam.right = sw; cam.top = sh; cam.bottom = -sh; cam.updateProjectionMatrix();
+  cam.position.set(ctr.x + 3, ctr.y + (window.__camY || 0), ctr.z); cam.lookAt(ctr);
+  r.render(scene, cam); g2.drawImage(r.domElement, (k % cols) * cw, Math.floor(k / cols) * ch);
+  g2.fillStyle = '#fff'; g2.font = '14px sans-serif'; g2.fillText(W[id].name, (k % cols) * cw + 6, Math.floor(k / cols) * ch + 16);
+  scene.remove(g);
+});
+cv.style.cssText = 'position:absolute;left:0;top:0';
+await snap('all');
+return ids.length + ' guns';
