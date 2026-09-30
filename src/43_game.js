@@ -137,8 +137,8 @@ const Game = {
       p.clearInventory();
       if (id !== 'knife') { const w = new WeaponInst(id, p.skinFor(id)); p.addWeapon(w); }
     } else {
-      const pri = pick(['ak47', 'm4a4', 'm4a1s', 'awp', 'galil', 'famas', 'mp7', 'p90', 'ump45', 'sg553', 'aug', 'xm1014', 'ssg08']);
-      const sec = pick(['deagle', 'usp', 'glock', 'p250', 'fiveseven', 'tec9']);
+      const pri = pick(['ak47', 'm4a4', 'm4a1s', 'awp', 'galil', 'famas', 'mp7', 'p90', 'ump45', 'sg553', 'aug', 'xm1014', 'ssg08', 'mp5sd', 'bizon', 'mac10', 'mp9', 'nova', 'mag7', 'm249', 'negev', 'scar20', 'g3sg1']);
+      const sec = pick(['deagle', 'usp', 'glock', 'p250', 'fiveseven', 'tec9', 'p2000', 'elite', 'cz75a']);
       p.addWeapon(new WeaponInst(p.isLocal && this.lastLocalPrimary ? this.lastLocalPrimary : pri, p.skinFor(pri)));
       p.addWeapon(new WeaponInst(p.isLocal && this.lastLocalSecondary ? this.lastLocalSecondary : sec, p.skinFor(sec)));
     }
@@ -484,19 +484,20 @@ const Game = {
     const nadeSet = team === 'T' ? ['smoke', 'flash', 'molotov', 'he', 'flash'] : ['smoke', 'flash', 'incgrenade', 'he', 'flash'];
     if (this.isPistolRound()) {
       const r = Math.random();
-      if (r < .5) b('vest'); else if (r < .8) { b('p250'); b('flash'); b('smoke'); } else { b(team === 'T' ? 'tec9' : 'fiveseven'); }
+      if (r < .5) b('vest'); else if (r < .8) { b('p250'); b('flash'); b('smoke'); } else { b(pick(team === 'T' ? ['tec9', 'cz75a', 'elite'] : ['fiveseven', 'cz75a', 'elite'])); }
       if (team === 'CT' && p.money >= 400 && Math.random() < .5) b('defuser');
       return;
     }
     const sniper = p.bot && (p.id % 5 === 0) && p.money >= 4750 + 1000 + 400;
     const full = (sniper ? 4750 : W[rifle].price) + 1000;
     if (p.money >= full) {
-      b(sniper ? 'awp' : rifle); b('vesthelm');
+      const auto = !sniper && p.money >= 6400 && Math.random() < .08;
+      b(sniper ? 'awp' : auto ? (team === 'T' ? 'g3sg1' : 'scar20') : rifle); b('vesthelm');
       for (const n of nadeSet) if (p.money >= itemPrice(n) + 200) b(n);
       if (team === 'CT' && p.money >= 400) b('defuser');
-      if (p.money >= 700 && Math.random() < .3) b('deagle');
+      if (p.money >= 700 && Math.random() < .3) b(Math.random() < .8 ? 'deagle' : 'revolver');
     } else if (teamMoney >= 3000 || lastOfHalf || p.money >= 3600) {
-      const f = team === 'T' ? (p.money >= 2800 ? 'galil' : 'mac10') : (p.money >= 3050 ? 'famas' : 'mp9');
+      const f = team === 'T' ? (p.money >= 2800 ? 'galil' : pick(['mac10', 'mp7', 'ump45', 'bizon'])) : (p.money >= 3050 ? 'famas' : pick(['mp9', 'mp5sd', 'ump45', 'mp7']));
       b(f); if (p.money >= 1000) b('vesthelm'); else b('vest');
       if (p.money >= 300) b('flash'); if (p.money >= 300) b('smoke');
     } else {

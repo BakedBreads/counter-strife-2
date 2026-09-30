@@ -11,7 +11,7 @@ const server = http.createServer((req, res) => { res.writeHead(200, { 'content-t
     page.on('pageerror', e => page.errs.push(name + ' PAGEERROR ' + e.message + ' ' + (e.stack || '').split('\n')[1]));
     page.on('console', m => { if (m.type() === 'error') page.errs.push(name + ' console ' + m.text()); });
     await page.goto(url);
-    await page.waitForFunction(() => document.getElementById('loading').classList.contains('hidden'), null, { timeout: 120000 });
+    await page.waitForFunction(() => document.getElementById('loading').classList.contains('hidden'), null, { timeout: 400000 }).catch(e => { console.log(name, 'did not load:', page.errs.join(' | ')); throw e; });
     return page;
   };
   const ok = (c, msg) => console.log((c ? 'PASS ' : 'FAIL ') + msg);
@@ -42,7 +42,7 @@ const server = http.createServer((req, res) => { res.writeHead(200, { 'content-t
   // buying through the host
   await B.evaluate(() => window.__cs.Net.send({ t: 'buy', i: 'ak47' }));
   await B.evaluate(() => window.__cs.Net.send({ t: 'buy', i: 'p250' }));
-  await B.waitForTimeout(800);
+  await B.waitForFunction(() => window.__cs.Game.local.weapons().some(w => w.id === 'p250'), null, { timeout: 60000 }).catch(() => { });
   const inv2 = await B.evaluate(() => ({ inv: window.__cs.Game.local.weapons().map(w => w.id), money: window.__cs.Game.local.money, hint: document.getElementById('hint').textContent }));
   ok(inv2.inv.includes('p250') && !inv2.inv.includes('ak47'), 'buy: ak47 denied (' + inv2.hint + '), p250 bought → ' + inv2.inv.join('+') + ' $' + inv2.money);
   // movement sync: client moves, host sees it
@@ -65,12 +65,15 @@ const server = http.createServer((req, res) => { res.writeHead(200, { 'content-t
   // chat both ways
   await B.evaluate(() => window.__cs.HUD.sendChat('gg from client', false));
   await A.evaluate(() => window.__cs.HUD.sendChat('hello from host', false));
-  await A.waitForTimeout(900);
+  // two software-rendered pages run far below real time: wait on the state, not the clock
+  await A.waitForFunction(() => document.getElementById('chat').textContent.includes('gg from client'), null, { timeout: 60000 }).catch(() => { });
+  await B.waitForFunction(() => document.getElementById('chat').textContent.includes('hello from host'), null, { timeout: 60000 }).catch(() => { });
   const chatA = await A.evaluate(() => document.getElementById('chat').textContent), chatB = await B.evaluate(() => document.getElementById('chat').textContent);
   ok(chatA.includes('gg from client') && chatB.includes('hello from host'), 'chat both ways');
   // let the round go live and play for a bit
   await A.evaluate(() => { const G = window.__cs.Game; G.phaseEnd = G.time + .5; });
-  await A.waitForTimeout(6000);
+  await B.waitForFunction(() => window.__cs.Game.phase === 'live', null, { timeout: 120000 }).catch(() => { });
+  await B.waitForTimeout(4000);
   const s2 = await B.evaluate(() => { const G = window.__cs.Game; return { phase: G.phase, round: G.round, sc: G.score, alive: G.players.filter(p => p.alive).length, moving: G.players.filter(p => !p.isLocal && p.alive && p.netBuf && p.netBuf.length > 3).length }; });
   ok(s2.phase === 'live', 'client sees live round ' + s2.round + ', ' + s2.alive + ' alive, ' + s2.moving + ' interpolated');
   await B.screenshot({ path: path.join(root, 'test-out', 'net-client.png') });

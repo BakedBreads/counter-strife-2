@@ -45,7 +45,8 @@ const Models = {
       case 'web': fill(c[0]); g.strokeStyle = c[1]; g.lineWidth = 2; for (let k = 0; k < 6; k++) { const x0 = R() * S, y0 = R() * S; for (let a = 0; a < 10; a++) { g.beginPath(); g.moveTo(x0, y0); g.lineTo(x0 + Math.cos(a / 10 * TAU) * 120, y0 + Math.sin(a / 10 * TAU) * 120); g.stroke(); } for (let r = 12; r < 120; r += 14) { g.beginPath(); g.arc(x0, y0, r, 0, TAU); g.stroke(); } } break;
       case 'splash': fill(c[2]); for (let k = 0; k < 60; k++) { g.fillStyle = c[k % 2 ? 0 : 1]; if (k % 7 === 0) g.fillStyle = c[3]; g.beginPath(); const x = R() * S, y = R() * S; for (let p = 0; p < 9; p++) { const a = p / 9 * TAU, r = 6 + R() * 22; p ? g.lineTo(x + Math.cos(a) * r, y + Math.sin(a) * r) : g.moveTo(x + Math.cos(a) * r, y + Math.sin(a) * r); } g.fill(); } break;
     }
-    const t = new THREE.CanvasTexture(cv); t.colorSpace = THREE.SRGBColorSpace; t.wrapS = t.wrapT = THREE.RepeatWrapping; t.anisotropy = 4; t.repeat.set(6, 6);
+    const t = new THREE.CanvasTexture(cv); t.colorSpace = THREE.SRGBColorSpace; // gradients mirror at the tile edges so a fade never shows a seam
+    t.wrapS = t.wrapT = s.type === 'fade' || s.type === 'gold' || s.type === 'wave' ? THREE.MirroredRepeatWrapping : THREE.RepeatWrapping; t.anisotropy = 4; t.repeat.set(6, 6);
     return this.skinTex[id] = t;
   },
   skinMat(id) {
@@ -73,40 +74,69 @@ const Models = {
     g.traverse(o => { if (o.isMesh) { o.castShadow = true; } });
     return g;
   },
+  // knives use the same side-profile extrusion as the guns: u toward the tip (-z), v up, handle behind the origin
   buildKnife(g, team, sk, knifeType) {
     const type = knifeType || Loadout.v.knife || 'default';
-    const steel = sk || this.mat(0xb8bcc2, .22, .95);
-    const handleM = this.mat(team === 'CT' ? 0x1e232a : 0x2a221a, .7, .1);
-    const blade = (pts, depth, len) => {
-      const s = new THREE.Shape(); s.moveTo(pts[0][0], pts[0][1]); for (let i = 1; i < pts.length; i++) s.lineTo(pts[i][0], pts[i][1]); s.closePath();
-      const geo = new THREE.ExtrudeGeometry(s, { depth, bevelEnabled: true, bevelThickness: .0015, bevelSize: .0015, bevelSegments: 1 });
-      geo.translate(0, 0, -depth / 2);
-      const o = new THREE.Mesh(geo, steel); o.rotation.y = Math.PI / 2; g.add(o); return o;
+    const M = Guns.mats();
+    if (!M.blade) {
+      M.blade = new THREE.MeshStandardMaterial({ color: 0xb4bac2, metalness: 1, roughness: .28 });
+      M.edge = new THREE.MeshStandardMaterial({ color: 0xe9edf1, metalness: 1, roughness: .1 });
+    }
+    const c = { g, skin: sk }, q = (a, b, e, n) => Guns.qb(a, b, e, n || 8);
+    const grip = team === 'CT' ? 'poly' : 'od';
+    // blade = satin body above a straight grind line + a thinner polished edge band below it
+    const blade = (top, bottom, gs, d) => {
+      const tip = top[top.length - 1];
+      const body = top.concat([gs], bottom.filter(p => p[0] <= gs[0] + 1e-6));
+      const edge = [gs, tip].concat(bottom.filter(p => p[0] >= gs[0] - 1e-6));
+      Guns.ext(c, body, d, '*blade', 0, d * .22);
+      Guns.ext(c, edge, d * .5, 'edge', 0, d * .12);
     };
+    const pin = (u, v, x) => { const m = new THREE.Mesh(this.geoCyl(.0032, .0032, x, 10), M.bright); m.rotation.z = Math.PI / 2; m.position.set(0, v, -u); g.add(m); };
     if (type === 'karambit') {
-      const pts = []; for (let k = 0; k <= 12; k++) { const a = k / 12; pts.push([.02 + a * .13, .02 + Math.sin(a * Math.PI * .9) * .035 - a * a * .06]); }
-      for (let k = 12; k >= 0; k--) { const a = k / 12; pts.push([.02 + a * .13 - .004, .02 + Math.sin(a * Math.PI * .9) * .035 - a * a * .06 - .022 * (1 - a * .9)]); }
-      blade(pts, .004);
-      this.box(g, .018, .026, .11, 0, .01, .05, handleM);
-      const ring = new THREE.Mesh(new THREE.TorusGeometry(.018, .005, 8, 16), steel); ring.position.set(0, .01, .12); ring.rotation.y = Math.PI / 2; g.add(ring);
+      const spine = [[0, .011]].concat(q([0, .011], [.075, .024], [.112, -.034], 12));
+      const grind = q([.112, -.034], [.066, .0], [.008, -.002], 12), inner = q([.112, -.034], [.062, -.005], [.006, -.009], 12);
+      Guns.ext(c, spine.concat(grind.slice(0, -1), [[.008, -.002], [0, -.002]]), .0046, '*blade', 0, .001);
+      Guns.ext(c, [[.112, -.034]].concat(inner, [[.008, -.002]], grind.slice(0, -1).reverse()), .0024, 'edge', 0, .0006);
+      Guns.ext(c, Guns.rr(-.1, -.013, -.002, .012, .006), .02, grip, 0, .005);
+      Guns.ext(c, Guns.rr(-.006, -.016, .004, .015, .003), .012, 'black', 0, .002);
+      for (const u of [-.03, -.07]) pin(u, 0, .021);
+      const ring = new THREE.Mesh(new THREE.TorusGeometry(.016, .0045, 10, 24), M.black); ring.position.set(0, -.001, .116); ring.rotation.y = Math.PI / 2; g.add(ring);
     } else if (type === 'butterfly') {
-      blade([[0, .01], [.15, .012], [.19, .0], [.15, -.012], [0, -.01]], .004);
-      this.box(g, .006, .02, .12, .008, 0, .06, handleM); this.box(g, .006, .02, .12, -.008, 0, .06, handleM);
+      blade([[0, .009], [.13, .01]].concat(q([.13, .01], [.168, .008], [.188, .0])), q([.188, .0], [.16, -.011], [.12, -.012]).concat([[.012, -.012], [.004, -.011], [0, -.008]]), [.012, -.004], .0042);
+      const slots = [Guns.rr(-.108, -.005, -.08, .004, .003), Guns.rr(-.07, -.005, -.042, .004, .003), Guns.rr(-.032, -.005, -.014, .004, .003)];
+      for (const x of [-.0085, .0085]) Guns.ext(c, Guns.rr(-.124, -.012, -.002, .011, .004), .0068, 'bright', x, .0012, slots);
+      Guns.ext(c, Guns.rr(-.132, -.006, -.12, .005, .002), .022, 'black', 0, .0015);
+      pin(-.004, 0, .026);
     } else if (type === 'bayonet') {
-      blade([[0, .015], [.16, .015], [.21, 0], [.17, -.013], [0, -.015]], .005);
-      this.box(g, .012, .06, .014, 0, 0, .005, steel);
-      for (let k = 0; k < 5; k++) this.box(g, .024, .028, .018, 0, 0, .025 + k * .02, handleM);
+      blade([[0, .014], [.12, .015]].concat(q([.12, .015], [.172, .013], [.205, .001])), q([.205, .001], [.172, -.013], [.13, -.0155]).concat([[.014, -.0155], [.005, -.011], [0, -.011]]), [.014, -.006], .005);
+      Guns.ext(c, [[.03, .004], [.1, .006], [.1, .0085], [.03, .0075]], .0056, 'steel', 0, .0008);
+      Guns.ext(c, Guns.rr(-.009, -.024, .003, .022, .003), .014, 'steel', 0, .002);
+      const ring = new THREE.Mesh(new THREE.TorusGeometry(.009, .0028, 8, 20), M.steel); ring.position.set(0, .03, .003); g.add(ring);
+      Guns.ext(c, Guns.rr(-.122, -.0165, -.008, .0145, .006), .026, grip, 0, .006);
+      for (let k = 0; k < 7; k++) Guns.ext(c, Guns.rr(-.108 + k * .014, -.0172, -.103 + k * .014, .0152, .002), .027, 'rubber', 0, .005);
+      Guns.ext(c, Guns.rr(-.136, -.013, -.12, .012, .004), .022, 'steel', 0, .003);
     } else if (type === 'flip') {
-      blade([[0, .016], [.12, .02], [.16, .004], [.13, -.01], [0, -.014]], .004);
-      this.box(g, .02, .03, .11, 0, 0, .06, handleM);
+      blade([[0, .014], [.098, .0175]].concat(q([.098, .0175], [.142, .015], [.162, .002])), q([.162, .002], [.132, -.016], [.084, -.017]).concat([[.012, -.0155], [.004, -.013], [0, -.012]]), [.012, -.006], .0045);
+      Guns.ext(c, [[-.002, .011], [.014, .012], [.006, .024], [.0, .022]], .004, 'steel', 0, .0008);
+      Guns.ext(c, Guns.rr(-.116, -.0145, .004, .0135, .006), .018, grip, 0, .005);
+      Guns.ext(c, Guns.rr(-.1, .001, -.028, .008, .0025), .0022, 'bright', .0105, .0006);
+      pin(.004, 0, .021); pin(-.1, 0, .02);
     } else if (type === 'bowie') {
-      blade([[0, .02], [.15, .02], [.2, .015], [.23, 0], [.2, -.02], [0, -.02]], .006);
-      this.box(g, .014, .07, .012, 0, 0, .004, steel);
-      this.box(g, .024, .032, .11, 0, 0, .06, this.mat(0x5b3b22, .6, .05));
+      blade([[0, .02], [.13, .021]].concat(q([.13, .021], [.19, .019], [.232, .002])), q([.232, .002], [.2, -.021], [.15, -.023]).concat([[.016, -.023], [.006, -.022], [0, -.019]]), [.016, -.008], .006);
+      Guns.ext(c, [[.02, .012], [.13, .0145], [.13, .017], [.02, .016]], .0066, 'steel', 0, .0008);
+      Guns.ext(c, Guns.rr(-.011, -.03, .003, .029, .004), .016, 'brass', 0, .003);
+      Guns.ext(c, [[-.011, .016], [-.06, .0175], [-.11, .016], [-.126, .012], [-.128, -.012]].concat(q([-.128, -.012], [-.115, -.02], [-.095, -.018]), q([-.095, -.018], [-.08, -.014], [-.06, -.019]), q([-.06, -.019], [-.035, -.014], [-.011, -.019])), .026, 'wood', 0, .007);
+      Guns.ext(c, Guns.rr(-.142, -.016, -.124, .016, .006), .026, 'brass', 0, .004);
+      for (const u of [-.035, -.085]) pin(u, 0, .027);
     } else {
-      blade([[0, .016], [.13, .016], [.18, .002], [.14, -.014], [0, -.016]], .005);
-      this.box(g, .022, .03, .11, 0, 0, .06, handleM);
-      this.box(g, .012, .045, .01, 0, 0, .004, this.mat(0x222222, .5, .6));
+      // standard issue: drop point with a fuller, finger-grooved grip and a steel pommel
+      blade([[0, .0125], [.105, .0135]].concat(q([.105, .0135], [.152, .012], [.182, .0005])), q([.182, .0005], [.15, -.0135], [.1, -.016]).concat([[.014, -.016], [.005, -.012], [0, -.012]]), [.014, -.007], .0048);
+      Guns.ext(c, [[.03, .004], [.096, .0055], [.096, .008], [.03, .007]], .0054, 'steel', 0, .0008);
+      Guns.ext(c, Guns.rr(-.007, -.021, .002, .019, .003), .012, 'black', 0, .002);
+      const bottom = [[-.114, -.0165]].concat(q([-.114, -.0165], [-.1, -.012], [-.086, -.0165]), q([-.086, -.0165], [-.072, -.012], [-.058, -.0165]), q([-.058, -.0165], [-.044, -.012], [-.03, -.0165]), q([-.03, -.0165], [-.018, -.0125], [-.007, -.017]));
+      Guns.ext(c, [[-.007, .012], [-.06, .0128], [-.105, .012], [-.116, .0135], [-.121, .008], [-.121, -.009]].concat(bottom), .022, grip, 0, .006);
+      Guns.ext(c, Guns.rr(-.13, -.012, -.118, .012, .004), .02, 'black', 0, .003);
     }
     g.userData.muzzle.position.set(0, 0, -.2);
   },
@@ -263,30 +293,35 @@ const Models = {
     const scene = new THREE.Scene();
     scene.add(new THREE.HemisphereLight(0xffffff, 0x445566, 1.6));
     const dl = new THREE.DirectionalLight(0xffffff, 2.2); dl.position.set(3, 4, 2); scene.add(dl);
+    // reflections from the map sky so metal reads as metal in the icons
+    if (App.scene && App.scene.environment) { scene.environment = App.scene.environment; scene.environmentIntensity = .9; }
     const cam = new THREE.OrthographicCamera(-1, 1, 1, -1, .01, 10);
     const white = new THREE.MeshBasicMaterial({ color: 0xffffff });
-    const buf = new Uint8Array(Wd * Hd * 4);
-    const cv = document.createElement('canvas'); cv.width = Wd; cv.height = Hd; const g2 = cv.getContext('2d');
+    // small targets for the HUD and buy menu, a large one (made on first use) for the loadout preview
+    const target = (w, h, t) => { const c = document.createElement('canvas'); c.width = w; c.height = h; return { w, h, rt: t, buf: new Uint8Array(w * h * 4), cv: c, g2: c.getContext('2d') }; };
+    const T = { s: target(Wd, Hd, rt) };
     const prevTarget = renderer.getRenderTarget(), prevClear = renderer.getClearColor(new THREE.Color()), prevAlpha = renderer.getClearAlpha();
-    const snap = () => {
-      renderer.readRenderTargetPixels(rt, 0, 0, Wd, Hd, buf);
-      const img = g2.createImageData(Wd, Hd);
-      for (let y = 0; y < Hd; y++) img.data.set(buf.subarray((Hd - 1 - y) * Wd * 4, (Hd - y) * Wd * 4), y * Wd * 4);
-      g2.putImageData(img, 0, 0); return cv.toDataURL();
+    const snap = t => {
+      renderer.readRenderTargetPixels(t.rt, 0, 0, t.w, t.h, t.buf);
+      const img = t.g2.createImageData(t.w, t.h);
+      for (let y = 0; y < t.h; y++) img.data.set(t.buf.subarray((t.h - 1 - y) * t.w * 4, (t.h - y) * t.w * 4), y * t.w * 4);
+      t.g2.putImageData(img, 0, 0); return t.cv.toDataURL();
     };
     renderer.setClearColor(0x000000, 0);
-    const shoot = (id, skin, silhouette) => {
+    const shoot = (id, skin, silhouette, big) => {
+      if (big && !T.b) { const r2 = new THREE.WebGLRenderTarget(768, 288, { samples: 4 }); r2.texture.colorSpace = THREE.SRGBColorSpace; T.b = target(768, 288, r2); }
+      const t = big ? T.b : T.s;
       const grp = this.gun(id, skin, 'CT');
       if (W[id].cat === 'grenade') grp.rotation.z = -.3;
       scene.add(grp);
       grp.updateMatrixWorld(true);
       const bb = new THREE.Box3().setFromObject(grp), size = bb.getSize(new V3()), ctr = bb.getCenter(new V3());
-      const aspect = Wd / Hd, sw = Math.max(size.z, size.y * aspect) * .55, sh = sw / aspect;
+      const aspect = t.w / t.h, sw = Math.max(size.z, size.y * aspect) * .55, sh = sw / aspect;
       cam.left = -sw; cam.right = sw; cam.top = sh; cam.bottom = -sh; cam.updateProjectionMatrix();
       cam.position.set(ctr.x + 3, ctr.y, ctr.z); cam.lookAt(ctr);
       scene.overrideMaterial = silhouette ? white : null;
-      renderer.setRenderTarget(rt); renderer.clear(); renderer.render(scene, cam);
-      const url = snap();
+      renderer.setRenderTarget(t.rt); renderer.clear(); renderer.render(scene, cam);
+      const url = snap(t);
       scene.remove(grp);
       return url;
     };
@@ -297,13 +332,15 @@ const Models = {
     this._iconRig = { rt, scene, restore: () => { renderer.setRenderTarget(prevTarget); renderer.setClearColor(prevClear, prevAlpha); } };
   },
   // skin preview for the inventory (rendered on demand)
-  skinIcon(renderer, id, skin) {
-    const key = id + '|' + skin + '|' + (id === 'knife' ? Loadout.v.knife : '');
+  skinIcon(renderer, id, skin, big) {
+    const key = (big ? 'H|' : '') + id + '|' + skin + '|' + (id === 'knife' ? Loadout.v.knife : '');
     if (this.iconsColor[key]) return this.iconsColor[key];
+    if (!big && skin === 'default' && id !== 'knife' && this.iconsColor[id]) return this.iconsColor[key] = this.iconsColor[id];
     const prevTarget = renderer.getRenderTarget(), prevClear = renderer.getClearColor(new THREE.Color()), prevAlpha = renderer.getClearAlpha();
     renderer.setClearColor(0x000000, 0);
-    const url = this.iconShoot(id, skin, false);
+    const url = this.iconShoot(id, skin, false, big);
     renderer.setRenderTarget(prevTarget); renderer.setClearColor(prevClear, prevAlpha);
     return this.iconsColor[key] = url;
-  }
+  },
+  skinHero(renderer, id, skin) { return this.skinIcon(renderer, id, skin, true); }
 };

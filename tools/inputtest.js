@@ -22,12 +22,12 @@ const server = http.createServer((req, res) => { res.writeHead(200, { 'content-t
   await page.keyboard.down('KeyW'); await page.waitForTimeout(1200); await page.keyboard.up('KeyW');
   const s1 = await st();
   ok(Math.hypot(s1.x - s0.x, s1.z - s0.z) < .05, 'no movement during freeze time (' + s0.phase + ')');
-  // buy menu with the keyboard: B, 2 (mid-tier), 1 (first SMG)
+  // buy menu with the keyboard: B, 1 (pistols), 5 (CT: USP-S, P2000, Dual Berettas, P250, Five-SeveN)
   await page.keyboard.press('KeyB'); await page.waitForTimeout(400);
   const buyOpen = await page.evaluate(() => window.__cs.HUD.buyOpen);
-  await page.keyboard.press('Digit1'); await page.waitForTimeout(200); await page.keyboard.press('Digit3'); await page.waitForTimeout(1200);
+  await page.keyboard.press('Digit1'); await page.waitForTimeout(200); await page.keyboard.press('Digit5'); await page.waitForTimeout(1200);
   const s2 = await st();
-  ok(buyOpen && s2.w === 'fiveseven' && s2.money === s0.money - 500, 'B → 1 → 3 buys a Five-SeveN as CT (money ' + s0.money + ' → ' + s2.money + ', holding ' + s2.w + ')');
+  ok(buyOpen && s2.w === 'fiveseven' && s2.money === s0.money - 500, 'B → 1 → 5 buys a Five-SeveN as CT (money ' + s0.money + ' → ' + s2.money + ', holding ' + s2.w + ')');
   await page.keyboard.press('KeyB'); await page.waitForTimeout(200);
   ok(!(await page.evaluate(() => window.__cs.HUD.buyOpen)), 'B closes the buy menu');
   // go live
@@ -42,7 +42,9 @@ const server = http.createServer((req, res) => { res.writeHead(200, { 'content-t
   for (let k = 0; k < 3; k++) { await page.mouse.down(); await page.waitForTimeout(300); await page.mouse.up(); await page.waitForTimeout(900); }
   const c1 = (await st()).clip;
   ok(c1 < c0, 'mouse fires (clip ' + c0 + ' → ' + c1 + ')');
-  await page.keyboard.press('KeyR'); await page.waitForTimeout(4500);
+  // software rendering runs the game clock slower than wall time, so wait on the game state
+  await page.keyboard.press('KeyR');
+  await page.waitForFunction(() => window.__cs.Game.local.active.clip === 20, null, { timeout: 30000 }).catch(() => { });
   ok((await st()).clip === 20, 'R reloads to a full magazine (' + (await st()).clip + ')');
   // weapon switching
   await page.keyboard.press('Digit3'); await page.waitForTimeout(1200);

@@ -222,6 +222,7 @@ class Player {
     const mv = sp2 > accS ? clamp((sp2 - accS) / (maxS - accS), 0, 1) : 0;
     let s = base + mv * sp[2];
     if (!this.onGround) s = Math.max(s, sp[3] * (d.id === 'ssg08' && Math.abs(this.vel.y) < 1.2 ? .15 : 1));
+    if (this.revFan) s += 1.5;
     return s + this.spreadAcc;
   }
   cancelPlant() { if (this.planting) { this.planting = false; Game.onPlantCancel(this); } }
@@ -282,6 +283,16 @@ class Player {
       else return;
     }
     if (!ready) return;
+    // R8 Revolver: primary fire cocks the hammer for 0.4 s before the shot, secondary fans the hammer (fast, loose)
+    if (d.revolver) {
+      if (w.clip <= 0) { if (cmd.fireHit || cmd.fire2Hit) { if (this.isLocal) SFX.play('dry', { vol: .6 }); if (w.reserve > 0) this.startReload(); } this.cockStart = 0; return; }
+      if (cmd.fire2 && now >= this.nextAttack) { this.cockStart = 0; this.revFan = true; this.shoot(); this.revFan = false; this.nextAttack = now + .4; return; }
+      if (cmd.fire) {
+        if (!this.cockStart) { this.cockStart = now; if (this.isLocal) SFX.play('click', { vol: .4 }); }
+        if (now - this.cockStart >= .4 && now >= this.nextAttack) { this.shoot(); this.cockStart = 0; this.nextAttack = now + .5; }
+      } else this.cockStart = 0;
+      return;
+    }
     const auto = d.auto && !(w.burst);
     const trig = auto ? cmd.fire : cmd.fireHit;
     if (!trig) return;

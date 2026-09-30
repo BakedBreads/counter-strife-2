@@ -58,6 +58,8 @@ const App = {
     this.refreshMenuModel();
     try { r.compile(this.scene, this.camera); } catch (e) { }
     window.addEventListener('resize', () => this.resize()); this.resize();
+    prog('Photographing de_dustline', .97); await new Promise(r2 => setTimeout(r2, 0));
+    try { this.makeThumbs(); } catch (e) { console.warn('map thumbnails failed', e); }
     document.addEventListener('visibilitychange', () => { this.lastT = performance.now(); });
     const unlockAudio = () => { SFX.init(); SFX.resume(); };
     window.addEventListener('pointerdown', unlockAudio); window.addEventListener('keydown', unlockAudio);
@@ -67,7 +69,7 @@ const App = {
     prog('Ready', 1);
     await new Promise(r2 => setTimeout(r2, 150));
     show('#loading', false);
-    Menu.open('play');
+    Menu.open('home');
     this.lastT = performance.now();
     r.setAnimationLoop(t => this.frame(t));
     window.__cs = { Game, World, App, Net, HUD, Menu, W, Settings, Combat, Input, SFX, FX, Items, Grenades, MAPDEF, BotAI };
@@ -102,6 +104,23 @@ const App = {
     this.scene.environmentIntensity = .55; this.vmScene.environmentIntensity = .8;
     pm.dispose();
   },
+  // pictures of both bomb sites for the map cards and the crosshair preview
+  makeThumbs() {
+    const r = this.renderer, W2 = 640, H2 = 360, out = {};
+    const cam = new THREE.PerspectiveCamera(58, innerWidth / innerHeight, .1, 900);
+    const cv = document.createElement('canvas'); cv.width = W2; cv.height = H2; const g = cv.getContext('2d');
+    const shots = { A: [[47, 11, -13], [35, 1.5, -44]], B: [[-25, 11, -13], [-43, 1, -41]] };
+    const ch = this.menuChar, vis = ch && ch.root.visible; if (ch) ch.root.visible = false;
+    for (const k in shots) {
+      const [p, t] = shots[k]; cam.position.set(p[0], p[1], p[2]); cam.lookAt(t[0], t[1], t[2]); cam.updateMatrixWorld();
+      r.setRenderTarget(null); r.clear(); r.render(this.scene, cam);
+      const cw = r.domElement.width, chh = r.domElement.height, sh = Math.min(chh, cw * H2 / W2), sw = sh * W2 / H2;
+      g.drawImage(r.domElement, (cw - sw) / 2, (chh - sh) / 2, sw, sh, 0, 0, W2, H2);
+      out[k] = cv.toDataURL('image/jpeg', .84);
+    }
+    if (ch) ch.root.visible = vis;
+    this.thumbs = out;
+  },
   resize() {
     const w = innerWidth, h = innerHeight;
     this.renderer.setSize(w, h);
@@ -116,7 +135,10 @@ const App = {
     if (r.shadowMap.enabled !== want) { r.shadowMap.enabled = want; this.scene.traverse(o => { if (o.material) { const ms = Array.isArray(o.material) ? o.material : [o.material]; ms.forEach(m => m.needsUpdate = true); } }); }
     const size = S.shadows === 'high' ? 4096 : 2048;
     if (this.sun.shadow.mapSize.x !== size) { this.sun.shadow.mapSize.set(size, size); if (this.sun.shadow.map) { this.sun.shadow.map.dispose(); this.sun.shadow.map = null; } }
-    this.vmCam.fov = S.vmFov; this.vmCam.updateProjectionMatrix();
+    // dolly zoom: a longer lens with the weapon pushed back by vmK frames it exactly as S.vmFov would,
+    // with flatter perspective so the forearms and gloves near the camera do not balloon
+    const lens = Math.max(30, S.vmFov - 24); this.vmK = Math.tan(S.vmFov / 2 * DEG) / Math.tan(lens / 2 * DEG);
+    this.vmCam.fov = lens; this.vmCam.updateProjectionMatrix();
     SFX.applyVolume();
     show('#fps', S.showFps);
     if (innerWidth) this.resize();
@@ -124,13 +146,13 @@ const App = {
   toast(msg) { const t = $('#toast'); t.textContent = msg; t.classList.add('on'); clearTimeout(this._tt); this._tt = setTimeout(() => t.classList.remove('on'), 2600); },
   confirm(title, text, ok, cb) {
     const d = $('#dialog'); show(d, true);
-    d.innerHTML = `<div class="card"><h2 style="font-family:var(--fc);letter-spacing:.06em">${esc(title)}</h2><p>${esc(text)}</p><div class="row" style="justify-content:center"><button class="btn danger" id="dOk">${esc(ok)}</button><button class="btn" id="dNo">Cancel</button></div></div>`;
+    d.innerHTML = `<div class="card"><h3>${esc(title)}</h3><p>${esc(text)}</p><div class="row"><button class="btn danger" id="dOk">${esc(ok)}</button><button class="btn" id="dNo">Cancel</button></div></div>`;
     $('#dOk').addEventListener('click', () => { show(d, false); cb(); });
     $('#dNo').addEventListener('click', () => show(d, false));
   },
   alert(title, text) {
     const d = $('#dialog'); show(d, true);
-    d.innerHTML = `<div class="card"><h2 style="font-family:var(--fc);letter-spacing:.06em">${esc(title)}</h2><p>${esc(text)}</p><button class="btn" id="dOk">OK</button></div>`;
+    d.innerHTML = `<div class="card"><h3>${esc(title)}</h3><p>${esc(text)}</p><div class="row"><button class="btn" id="dOk">OK</button></div></div>`;
     $('#dOk').addEventListener('click', () => show(d, false));
   },
   refreshMenuModel() {
@@ -174,7 +196,7 @@ const App = {
     Input.unlock(); Input.setVCursor(false);
     this.clearVM();
     if (this.menuChar) this.menuChar.root.visible = true;
-    Menu.open(Net.role !== 'off' ? 'online' : 'play');
+    Menu.open(Net.role !== 'off' ? 'online' : 'home');
   },
   matchOver(winner, reason) { Input.unlock(); HUD.closeBuy(); Menu.matchEnd(winner, reason); },
   onRoundStart() { this.specTarget = null; this.deathT = 0; this.thirdPerson = false; if (Game.local) Game.local.pitch = 0; },
@@ -218,7 +240,12 @@ const App = {
     if (p) p.then(() => { if (navigator.keyboard && navigator.keyboard.lock) navigator.keyboard.lock().catch(() => { }); if (!quiet) this.toast('Fullscreen: hold Esc to leave'); if (this.paused) this.resume(); }).catch(() => { if (!quiet) this.toast('Fullscreen was blocked by the browser'); });
   },
   onKey(code, e) {
-    if (!this.inGame) { if (code === 'Escape' && !$('#dialog').classList.contains('hidden')) { show('#dialog', false); return true; } return false; }
+    if (!this.inGame) {
+      if (code !== 'Escape') return false;
+      if (!$('#dialog').classList.contains('hidden')) { show('#dialog', false); return true; }
+      if (Menu.pane !== 'home' && !$('#menu').classList.contains('hidden')) { Menu.open('home'); return true; }
+      return false;
+    }
     const b = Settings.v.binds, lp = Game.local;
     if (code === 'Escape') {
       if (!$('#dialog').classList.contains('hidden')) { show('#dialog', false); return true; }
@@ -257,9 +284,10 @@ const App = {
     }
     const a = cyaw - .75 + Math.sin(this.menuT * .12) * .3, f = dirFromAngles(a, 0, _v1);
     cam.position.set(base.x + f.x * 3.3, base.y + 1.5, base.z + f.z * 3.3);
-    const lyaw = yawTo(base.x - cam.position.x, base.z - cam.position.z);
-    const narrow = innerWidth < 760;
-    cam.lookAt(base.x + Math.cos(lyaw) * (narrow ? 0 : -.95), base.y + 1.15, base.z - Math.sin(lyaw) * (narrow ? 0 : -.95));
+    // aim at the hips, not the model origin: the idle animation shifts the body off it
+    let lx = base.x, lz = base.z;
+    if (ch && ch.rig && ch.rig.bones.Hips) { ch.root.updateMatrixWorld(true); ch.rig.bones.Hips.getWorldPosition(_v2); lx = _v2.x; lz = _v2.z; }
+    cam.lookAt(lx, base.y + 1.05, lz);
     if (cam.fov !== 50) { cam.fov = 50; cam.updateProjectionMatrix(); }
     FX.update(dt, cam, this.scene.fog);
     this.render(false);
@@ -405,6 +433,7 @@ const App = {
     if (which === 'muzzle' && gun.userData.muzzle2 && vp && (vp.shotCount || 0) % 2 === 0) node = gun.userData.muzzle2;
     this.vm.updateMatrixWorld(true);
     node.getWorldPosition(out); // in vmCam space (vmCam sits at the origin with identity rotation)
+    out.z /= this.vmK || 1; // undo the dolly push so effects start where the muzzle appears
     // take it into the world camera space: viewmodel FOV differs slightly, which is fine for effects
     return this.camera.localToWorld(out);
   },
@@ -427,7 +456,8 @@ const App = {
     // base placement
     // camera-space placement per weapon family [x, y, z, yaw] (tuned so the hands reach grip and handguard)
     const base = Agents.vmBase(d);
-    let px = base[0], py = base[1], pz = base[2], rx = 0, ry = base[3], rz = 0;
+    const dz = base[2] * ((this.vmK || 1) - 1);
+    let px = base[0], py = base[1], pz = base[2] + dz, rx = base[4] || 0, ry = base[3], rz = base[5] || 0;
     // bob & sway
     const sp = Math.hypot(vp.vel.x, vp.vel.z), moving = vp.onGround ? clamp(sp / 5, 0, 1.2) : 0;
     this.vmBob += dt * (6 + sp * 1.2) * (moving > .05 ? 1 : 0);
@@ -472,7 +502,6 @@ const App = {
         if (vp.swingHeavy) { const e = Math.sin(clamp(t, 0, 1) * Math.PI); pz -= e * .14; rx -= e * .3; py += e * .03; }
         else { const e = Math.sin(clamp(t, 0, 1) * Math.PI); const dir = vp.slashAlt ? 1 : -1; ry += dir * (clamp(t, 0, 1) * 2 - 1) * 1.1 * e; rz += dir * .6 * e; px -= e * .05 * dir; pz -= e * .06; }
       }
-      rz += .15; ry += .15;
     }
     // grenades
     if (cat === 'grenade') {
@@ -483,7 +512,7 @@ const App = {
     if (cat === 'c4' && vp.planting) { py -= .05; pz += .05; rx += .5 + Math.sin(now * 20) * .02; }
     if (cat === 'zeus' && w.clip === 0) py -= .02;
     vm.position.set(px, py, pz); vm.rotation.set(rx, ry, rz);
-    if (this.vmArms) { this.vmArms.root.visible = vm.visible; if (vm.visible) { vm.updateMatrixWorld(true); Agents.poseViewArms(this.vmArms, gun, cat); } }
+    if (this.vmArms) { this.vmArms.root.visible = vm.visible; if (vm.visible) { vm.updateMatrixWorld(true); Agents.poseViewArms(this.vmArms, gun, cat, dz); } }
     // viewmodel light follows the sun, dimmed in shadow
     if ((this._vmlt = (this._vmlt || 0) - dt) <= 0) {
       this._vmlt = .12; const e = vp.eye(_v3);

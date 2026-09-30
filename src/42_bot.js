@@ -402,6 +402,7 @@ class Bot {
     if (!this.target || !w || now < this.reactAt) return;
     const d = w.def; if (d.cat === 'grenade' || d.cat === 'c4') return;
     if (d.cat === 'knife') { if (this.target.pos.distanceTo(p.pos) < 1.7) c.fire = true; return; }
+    if (d.revolver) { c.fire = true; return; }
     if (w.clip === 0) { c.reload = true; return; }
     const e = this.target, eye = p.eye(_v3), dist = e.pos.distanceTo(p.pos);
     // angular error between where bullets go and the target point

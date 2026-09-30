@@ -14,6 +14,7 @@ const server = http.createServer((req, res) => { res.writeHead(200, { 'content-t
   await page.waitForFunction(() => document.getElementById('loading').classList.contains('hidden'), null, { timeout: 120000 });
   const shot = async (name) => { await page.waitForTimeout(250); await page.screenshot({ path: path.join(out, name + '.png') }); console.log('shot', name); };
   const ev = (fn, arg) => page.evaluate(fn, arg);
+  await page.addStyleTag({ content: '#clickplay{display:none!important}' });
   await ev(() => { const { App } = window.__cs; App.startMatch({ mode: 'competitive', diff: 'hard', team: 'CT', ff: true }); document.getElementById('clickplay').classList.add('hidden'); });
   // freeze bots so scenes are stable
   await ev(() => { const { Game } = window.__cs; Game.players.forEach(p => { if (p.bot) p.bot.update = () => { }; }); Game.phaseEnd = Game.time + 999; });
@@ -21,7 +22,7 @@ const server = http.createServer((req, res) => { res.writeHead(200, { 'content-t
   const place = async (x, z, yaw, pitch) => ev(([x, z, yaw, pitch]) => { const { Game, World } = window.__cs; const lp = Game.local; lp.pos.set(x, World.floorAt(x, z), z); lp.yaw = yaw; lp.pitch = pitch || 0; lp.vel.set(0, 0, 0); }, [x, z, yaw, pitch]);
   if (!only || only === 'vm') {
     await place(36, -40, Math.PI * .75, -.05);
-    for (const [id, skin] of [['ak47', 'default'], ['m4a1s', 'neon'], ['awp', 'default'], ['deagle', 'gold'], ['knife', 'fade'], ['p90', 'default'], ['nova', 'default'], ['he', 'default']]) { await give(id, skin); await page.waitForTimeout(300); await shot('vm-' + id); }
+    for (const [id, skin] of (process.env.VMS ? process.env.VMS.split(',').map(x => x.split(':')) : [['ak47', 'default'], ['m4a1s', 'neon'], ['awp', 'default'], ['deagle', 'gold'], ['knife', 'fade'], ['p90', 'default'], ['nova', 'default'], ['he', 'default']]).map(a => [a[0], a[1] || 'default'])) { await give(id, skin); await page.waitForTimeout(300); await shot('vm-' + id); }
   }
   if (!only || only === 'players') {
     await give('ak47');

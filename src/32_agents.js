@@ -86,7 +86,39 @@ const Agents = {
       const out = [];
       for (let t = 0; t < idx.count; t += 3) { const a = idx.getX(t), b = idx.getX(t + 1), c = idx.getX(t + 2); if (keep.has(dom[a]) && keep.has(dom[b]) && keep.has(dom[c])) out.push(a, b, c); }
       const ng = g.clone(); ng.setIndex(out); m.geometry = ng;
+      this.slimForearms(m, names, si, sw);
     }
+  },
+  // the Soldier's armoured sleeves and glove cuffs fill the screen up close: pull those vertices toward the
+  // bone axis, fully along the forearm and fading out from the wrist to the knuckles
+  armSlim: .62, cuffSlim: .62,
+  slimForearms(m, names, si, sw) {
+    if (this.armSlim >= 1 && this.cuffSlim >= 1) return;
+    const sk = m.skeleton, bm = m.bindMatrix, bmi = m.bindMatrixInverse, M4 = new THREE.Matrix4();
+    const at = i => new V3().setFromMatrixPosition(M4.copy(sk.boneInverses[i]).invert());
+    const axis = {};
+    for (const side of ['Left', 'Right']) {
+      const fa = names.indexOf(side + 'ForeArm'), h = names.indexOf(side + 'Hand'), mid = names.indexOf(side + 'HandMiddle1');
+      if (fa >= 0 && h >= 0) axis[fa] = { a: at(fa), b: at(h), s0: this.armSlim, s1: this.armSlim, t1: 1 };
+      if (h >= 0 && mid >= 0) axis[h] = { a: at(h), b: at(mid), s0: this.cuffSlim, s1: 1, t1: .75 };
+    }
+    const pos = m.geometry.attributes.position, p = new V3(), c = new V3(), ab = new V3(), acc = new V3();
+    for (let v = 0; v < pos.count; v++) {
+      p.fromBufferAttribute(pos, v).applyMatrix4(bm); acc.set(0, 0, 0);
+      let wsum = 0;
+      for (let k = 0; k < 4; k++) {
+        const w = sw.getComponent(v, k), ax = axis[si.getComponent(v, k)]; if (!ax || w <= 0) continue;
+        ab.subVectors(ax.b, ax.a);
+        const t = clamp(c.subVectors(p, ax.a).dot(ab) / ab.lengthSq(), 0, 1);
+        const s = ax.s0 + (ax.s1 - ax.s0) * clamp(t / ax.t1, 0, 1);
+        c.copy(ax.a).addScaledVector(ab, t);
+        acc.addScaledVector(c.sub(p), (1 - s) * w); wsum += w;
+      }
+      if (!wsum) continue;
+      p.add(acc).applyMatrix4(bmi);
+      pos.setXYZ(v, p.x, p.y, p.z);
+    }
+    pos.needsUpdate = true;
   },
   /* ---------- pose helpers ---------- */
   // rotate a bone (in world space) so the direction to its child points along dir
@@ -285,8 +317,8 @@ const Agents = {
   },
   // arms rig lives in the viewmodel camera space; gun already placed there
   vmFits: {
-    long: { s: 1.2, x: .1, y: -.25, z: -.3 }, pistol: { s: 1.05, x: .16, y: -.42, z: -.26 }, dual: { s: 1.05, x: .0, y: -.4, z: -.24 },
-    knife: { s: 1.05, x: .14, y: -.36, z: -.24 }, grenade: { s: 1.05, x: .14, y: -.34, z: -.24 }, c4: { s: 1.05, x: .02, y: -.36, z: -.2 }
+    long: { s: 1.2, x: .1, y: -.3, z: -.3 }, pistol: { s: 1.05, x: .16, y: -.42, z: -.26 }, dual: { s: 1.05, x: .0, y: -.4, z: -.24 },
+    knife: { s: .95, x: .22, y: -.46, z: -.3 }, grenade: { s: .95, x: .2, y: -.44, z: -.3 }, c4: { s: 1.05, x: .02, y: -.36, z: -.2 }
   },
   // camera-space weapon placement [x, y, z, yaw] per family, tuned together with vmFits so both hands reach
   vmBase(d) {
@@ -296,12 +328,12 @@ const Agents = {
     if (d.id === 'famas' || d.id === 'aug' || d.id === 'p90') { b[2] -= .1; b[1] -= .01; }
     return b;
   },
-  vmTable: { rifle: [.19, -.18, -.46, .035], smg: [.18, -.17, -.44, .04], mg: [.2, -.19, -.48, .035], shotgun: [.19, -.18, -.46, .035], sniper: [.19, -.18, -.48, .035], pistol: [.19, -.09, -.52, .26], dual: [.1, -.1, -.52, 0], knife: [.17, -.13, -.42, .2], grenade: [.16, -.1, -.4, .1], c4: [.05, -.16, -.4, 0], zeus: [.19, -.09, -.52, .26] },
-  poseViewArms(arms, gun, cat) {
+  vmTable: { rifle: [.19, -.18, -.46, .035], smg: [.18, -.17, -.44, .04], mg: [.2, -.19, -.48, .035], shotgun: [.19, -.18, -.46, .035], sniper: [.19, -.18, -.48, .035], pistol: [.19, -.07, -.53, .22], dual: [.1, -.1, -.52, 0], knife: [.22, -.14, -.44, .5, .55, .35], grenade: [.2, -.1, -.46, .2, .2, 0], c4: [.05, -.16, -.4, 0], zeus: [.19, -.07, -.53, .22] },
+  poseViewArms(arms, gun, cat, dz) {
     const r = arms.rig;
     // head of the rig sits at the camera; body slid forward so both hands reach the weapon
     const F = this.vmFits, dual = !!gun.userData.dual;
-    const V = dual ? F.dual : cat === 'pistol' || cat === 'zeus' ? F.pistol : cat === 'knife' ? F.knife : cat === 'grenade' ? F.grenade : cat === 'c4' ? F.c4 : F.long; r.model.scale.setScalar(V.s); r.model.position.set(V.x, -1.62 * V.s + V.y, V.z);
+    const V = dual ? F.dual : cat === 'pistol' || cat === 'zeus' ? F.pistol : cat === 'knife' ? F.knife : cat === 'grenade' ? F.grenade : cat === 'c4' ? F.c4 : F.long; r.model.scale.setScalar(V.s); r.model.position.set(V.x, -1.62 * V.s + V.y, V.z + (dz || 0));
     for (const k in r.rest) r.bones[k].quaternion.copy(r.rest[k]);
     arms.root.updateMatrixWorld(true);
     this.holdWeapon(r, gun, cat, { view: true });

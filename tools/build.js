@@ -3,7 +3,7 @@ const fs = require('fs'), path = require('path'), vm = require('vm');
 const root = path.join(__dirname, '..'), src = path.join(root, 'src'), ven = path.join(root, 'vendor');
 const read = f => fs.readFileSync(f, 'utf8');
 
-const fonts = [['Barlow', 400, 'barlow-400'], ['Barlow', 600, 'barlow-600'], ['Barlow Condensed', 500, 'barlowc-500'], ['Barlow Condensed', 600, 'barlowc-600'], ['Barlow Condensed', 700, 'barlowc-700']]
+const fonts = [['Barlow', 400, 'barlow-400'], ['Barlow', 600, 'barlow-600'], ['Rajdhani', 500, 'rajdhani-500'], ['Rajdhani', 600, 'rajdhani-600'], ['Rajdhani', 700, 'rajdhani-700']]
   .map(([fam, w, f]) => `@font-face{font-family:'${fam}';font-style:normal;font-weight:${w};font-display:swap;src:url(data:font/woff2;base64,${fs.readFileSync(path.join(ven, 'fonts', f + '.woff2')).toString('base64')}) format('woff2')}`).join('\n');
 
 const head = read(path.join(src, '00_head.html')).replace('/*FONTS*/', fonts);
