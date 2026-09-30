@@ -155,12 +155,13 @@ class Player {
         if (v.y <= 0) { if (b.y1 <= py + P.step + .01 && (land === null || b.y1 > land)) land = b.y1; }
         else if (ceil === null || b.y0 < ceil) ceil = b.y0;
       });
-      if (land !== null) { const fall = -v.y; p.y = land; v.y = 0; this.onGround = true; this.landed(fall); }
+      if (land !== null) { const fall = -v.y; if (this.isLocal && land - p.y > .05) Game.stepSmooth(land - p.y); p.y = land; v.y = 0; this.onGround = true; this.landed(fall); }
       else if (ceil !== null) { p.y = ceil - h - 1e-3; v.y = 0; }
       if (p.y < -30) { p.y = 5; Game.damage(this, 1000, null, 'world', { hg: 'body' }); }
     } else {
       const g = this.groundTop(p.x, p.z, p.y + .002, P.step + .06);
-      if (g === null) { this.onGround = false; v.y = 0; } else p.y = g;
+      if (g === null) { this.onGround = false; v.y = 0; }
+      else { if (this.isLocal && p.y - g > .05) Game.stepSmooth(g - p.y); p.y = g; }
     }
     // footsteps (running only; walking and crouching are silent)
     const sp2 = Math.hypot(v.x, v.z);
@@ -238,7 +239,7 @@ class Player {
       const k = 1 - Math.exp(-dt * 30);
       this.punchX += (tx - this.punchX) * k; this.punchY += (ty - this.punchY) * k;
       this.spreadAcc = Math.max(0, this.spreadAcc - w.def.sp[5] * dt);
-    } else { this.punchX *= .8; this.punchY *= .8; }
+    } else { const k = Math.exp(-dt * 27); this.punchX *= k; this.punchY *= k; }
     this.flinchX *= Math.exp(-dt * 10); this.flinchY *= Math.exp(-dt * 10);
     if (!w || !this.alive) return;
     const d = w.def;

@@ -3,7 +3,7 @@ const Input = {
   keys: new Set(), pressed: new Set(),
   mdx: 0, mdy: 0, wheel: 0,
   mb: [false, false, false], mbHit: [false, false, false], mbUp: [false, false, false],
-  locked: false, canvas: null,
+  locked: false, canvas: null, raw: false, lockT: 0, lastBig: false,
   typing: false,         // chat box focused
   rebindCb: null,        // settings "press a key" capture
   onKey: null,           // (code, event) => handled?  set by App for menus / toggles
@@ -45,15 +45,20 @@ const Input = {
     window.addEventListener('mousemove', e => {
       if (!this.locked) return;
       let dx = e.movementX || 0, dy = e.movementY || 0;
-      // Chrome occasionally reports huge spikes on lock/unlock; drop them
-      if (Math.abs(dx) > 400 || Math.abs(dy) > 400) return;
+      // the first events after locking can carry the jump from the old cursor position
+      if (performance.now() - this.lockT < 80) return;
+      // without raw input Chrome sometimes reports one bogus half-screen jump; a real flick keeps going,
+      // so only an isolated big event is dropped (raw input never needs this, fast flicks always count)
+      const big = Math.max(Math.abs(dx), Math.abs(dy)) > 300;
+      if (!this.raw && big && !this.lastBig) { this.lastBig = true; return; }
+      this.lastBig = big;
       if (this.vc.on) { this.vcMove(dx, dy); return; }
       this.mdx += dx; this.mdy += dy;
     });
     window.addEventListener('wheel', e => { if (App.inGame) { this.wheel += Math.sign(e.deltaY); } }, { passive: true });
     window.addEventListener('contextmenu', e => { if (App.inGame) e.preventDefault(); });
     document.addEventListener('pointerlockchange', () => {
-      this.locked = document.pointerLockElement === this.canvas;
+      this.locked = document.pointerLockElement === this.canvas; this.lockT = performance.now(); this.lastBig = false;
       if (!this.locked) { this.mb = [false, false, false]; this.setVCursor(false); }
       if (this.onLockChange) this.onLockChange(this.locked);
     });
@@ -80,9 +85,10 @@ const Input = {
     if (this.locked) return;
     const c = this.canvas;
     try {
+      this.raw = false;
       const p = Settings.v.rawInput ? c.requestPointerLock({ unadjustedMovement: true }) : c.requestPointerLock();
-      if (p && p.catch) p.catch(() => { try { const q = c.requestPointerLock(); if (q && q.catch) q.catch(() => { }); } catch (e) { } });
-    } catch (e) { try { c.requestPointerLock(); } catch (e2) { } }
+      if (p && p.then) p.then(() => { this.raw = !!Settings.v.rawInput; }, () => { try { const q = c.requestPointerLock(); if (q && q.catch) q.catch(() => { }); } catch (e) { } });
+    } catch (e) { this.raw = false; try { c.requestPointerLock(); } catch (e2) { } }
   },
   unlock() { if (document.pointerLockElement) document.exitPointerLock(); },
   // virtual cursor used for in-game overlays while the mouse stays captured

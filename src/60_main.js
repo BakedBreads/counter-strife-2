@@ -2,7 +2,7 @@
 const SUN_DIR = new V3(-.42, .82, .38).normalize();
 const App = {
   renderer: null, scene: null, camera: null, vmScene: null, vmCam: null, inGame: false, paused: false,
-  stepOffset: 0, landKick: 0, captureFlash: false, specTarget: null, thirdPerson: false, spectating: false,
+  stepOffset: 0, landKick: 0, landVel: 0, landW: 14, captureFlash: false, specTarget: null, thirdPerson: false, spectating: false,
   vm: null, vmKey: '', vmBob: 0, swayX: 0, swayY: 0, lastT: 0, fpsT: 0, fpsN: 0, fov: 74, deathT: 0, killer: null,
   specYaw: 0, specPitch: .2, menuT: 0, vmLight: 1, lastFireT: -9,
   async boot() {
@@ -332,7 +332,11 @@ const App = {
     const c = lp.cmd, I = Input, free = !this.paused && !Input.typing && Input.locked;
     if (!lp.alive || !free) {
       c.fwd = c.side = 0; c.fire = c.fire2 = false; c.walk = false; c.use = false;
-      if (!lp.alive) { c.duck = false; if (I.mbHit[0]) this.cycleSpec(1); if (I.mbHit[2]) this.cycleSpec(-1); if (I.hit('jump')) this.thirdPerson = !this.thirdPerson; }
+      if (!lp.alive) {
+        c.duck = false; if (I.mbHit[0]) this.cycleSpec(1); if (I.mbHit[2]) this.cycleSpec(-1);
+        // third person starts behind the watched player instead of wherever the orbit was left
+        if (I.hit('jump')) { this.thirdPerson = !this.thirdPerson; if (this.thirdPerson && this.specTarget) { this.specYaw = this.specTarget.yaw; this.specPitch = .25; } }
+      }
       return;
     }
     c.fwd = (I.down('forward') ? 1 : 0) - (I.down('back') ? 1 : 0);
@@ -366,8 +370,10 @@ const App = {
   updateCamera(dt) {
     const G = Game, lp = G.local, cam = this.camera, S = Settings.v;
     let fovT = S.fov;
-    this.stepOffset *= Math.exp(-dt * 14); if (Math.abs(this.stepOffset) < .001) this.stepOffset = 0;
-    this.landKick *= Math.exp(-dt * 9);
+    this.stepOffset = clamp(this.stepOffset * Math.exp(-dt * 14), -.6, .6); if (Math.abs(this.stepOffset) < .001) this.stepOffset = 0;
+    // critically damped spring for the landing dip (sub-stepped so low frame rates stay stable)
+    for (let t = dt; t > 1e-6; t -= 1 / 240) { const h = Math.min(t, 1 / 240), w = this.landW; this.landVel += (-w * w * this.landKick - 2 * w * this.landVel) * h; this.landKick += this.landVel * h; }
+    if (Math.abs(this.landKick) < 1e-4 && Math.abs(this.landVel) < 1e-3) this.landKick = this.landVel = 0;
     const sh = FX.shake;
     if (lp && lp.alive) {
       const e = lp.eye(_v1);

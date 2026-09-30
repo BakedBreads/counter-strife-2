@@ -650,7 +650,7 @@ const Input = {
   keys: new Set(), pressed: new Set(),
   mdx: 0, mdy: 0, wheel: 0,
   mb: [false, false, false], mbHit: [false, false, false], mbUp: [false, false, false],
-  locked: false, canvas: null,
+  locked: false, canvas: null, raw: false, lockT: 0, lastBig: false,
   typing: false,         // chat box focused
   rebindCb: null,        // settings "press a key" capture
   onKey: null,           // (code, event) => handled?  set by App for menus / toggles
@@ -692,15 +692,20 @@ const Input = {
     window.addEventListener('mousemove', e => {
       if (!this.locked) return;
       let dx = e.movementX || 0, dy = e.movementY || 0;
-      // Chrome occasionally reports huge spikes on lock/unlock; drop them
-      if (Math.abs(dx) > 400 || Math.abs(dy) > 400) return;
+      // the first events after locking can carry the jump from the old cursor position
+      if (performance.now() - this.lockT < 80) return;
+      // without raw input Chrome sometimes reports one bogus half-screen jump; a real flick keeps going,
+      // so only an isolated big event is dropped (raw input never needs this, fast flicks always count)
+      const big = Math.max(Math.abs(dx), Math.abs(dy)) > 300;
+      if (!this.raw && big && !this.lastBig) { this.lastBig = true; return; }
+      this.lastBig = big;
       if (this.vc.on) { this.vcMove(dx, dy); return; }
       this.mdx += dx; this.mdy += dy;
     });
     window.addEventListener('wheel', e => { if (App.inGame) { this.wheel += Math.sign(e.deltaY); } }, { passive: true });
     window.addEventListener('contextmenu', e => { if (App.inGame) e.preventDefault(); });
     document.addEventListener('pointerlockchange', () => {
-      this.locked = document.pointerLockElement === this.canvas;
+      this.locked = document.pointerLockElement === this.canvas; this.lockT = performance.now(); this.lastBig = false;
       if (!this.locked) { this.mb = [false, false, false]; this.setVCursor(false); }
       if (this.onLockChange) this.onLockChange(this.locked);
     });
@@ -727,9 +732,10 @@ const Input = {
     if (this.locked) return;
     const c = this.canvas;
     try {
+      this.raw = false;
       const p = Settings.v.rawInput ? c.requestPointerLock({ unadjustedMovement: true }) : c.requestPointerLock();
-      if (p && p.catch) p.catch(() => { try { const q = c.requestPointerLock(); if (q && q.catch) q.catch(() => { }); } catch (e) { } });
-    } catch (e) { try { c.requestPointerLock(); } catch (e2) { } }
+      if (p && p.then) p.then(() => { this.raw = !!Settings.v.rawInput; }, () => { try { const q = c.requestPointerLock(); if (q && q.catch) q.catch(() => { }); } catch (e) { } });
+    } catch (e) { this.raw = false; try { c.requestPointerLock(); } catch (e2) { } }
   },
   unlock() { if (document.pointerLockElement) document.exitPointerLock(); },
   // virtual cursor used for in-game overlays while the mouse stays captured
@@ -3503,12 +3509,13 @@ class Player {
         if (v.y <= 0) { if (b.y1 <= py + P.step + .01 && (land === null || b.y1 > land)) land = b.y1; }
         else if (ceil === null || b.y0 < ceil) ceil = b.y0;
       });
-      if (land !== null) { const fall = -v.y; p.y = land; v.y = 0; this.onGround = true; this.landed(fall); }
+      if (land !== null) { const fall = -v.y; if (this.isLocal && land - p.y > .05) Game.stepSmooth(land - p.y); p.y = land; v.y = 0; this.onGround = true; this.landed(fall); }
       else if (ceil !== null) { p.y = ceil - h - 1e-3; v.y = 0; }
       if (p.y < -30) { p.y = 5; Game.damage(this, 1000, null, 'world', { hg: 'body' }); }
     } else {
       const g = this.groundTop(p.x, p.z, p.y + .002, P.step + .06);
-      if (g === null) { this.onGround = false; v.y = 0; } else p.y = g;
+      if (g === null) { this.onGround = false; v.y = 0; }
+      else { if (this.isLocal && p.y - g > .05) Game.stepSmooth(g - p.y); p.y = g; }
     }
     // footsteps (running only; walking and crouching are silent)
     const sp2 = Math.hypot(v.x, v.z);
@@ -3586,7 +3593,7 @@ class Player {
       const k = 1 - Math.exp(-dt * 30);
       this.punchX += (tx - this.punchX) * k; this.punchY += (ty - this.punchY) * k;
       this.spreadAcc = Math.max(0, this.spreadAcc - w.def.sp[5] * dt);
-    } else { this.punchX *= .8; this.punchY *= .8; }
+    } else { const k = Math.exp(-dt * 27); this.punchX *= k; this.punchY *= k; }
     this.flinchX *= Math.exp(-dt * 10); this.flinchY *= Math.exp(-dt * 10);
     if (!w || !this.alive) return;
     const d = w.def;
@@ -5149,7 +5156,8 @@ const Game = {
   intelPush(team, pos, t) { if (!team || team === 'none') return; this.intel[team].push({ pos: pos.clone(), t, site: BotAI.intelSite(pos) }); },
   hint(t, d) { if (this.local) HUD.hint(t, d); },
   stepSmooth(dy) { App.stepOffset -= dy; },
-  landKick(f) { App.landKick = Math.min(.12, f * .006); },
+  // landing dip: kick the camera spring downward so the dip eases in and out instead of snapping
+  landKick(f) { App.landVel = Math.max(App.landVel, Math.min(.12, f * .006) * App.landW * Math.E); },
   muzzlePos(p) { const g = p.model && p.model.gun; if (!g || !p.model.root.visible) return null; return g.userData.muzzle.getWorldPosition(new V3()); },
   vmMuzzleWorld() { return App.vmPointWorld('muzzle'); },
   vmEjectWorld() { return App.vmPointWorld('eject'); }
@@ -6227,7 +6235,7 @@ const Net = {
 const SUN_DIR = new V3(-.42, .82, .38).normalize();
 const App = {
   renderer: null, scene: null, camera: null, vmScene: null, vmCam: null, inGame: false, paused: false,
-  stepOffset: 0, landKick: 0, captureFlash: false, specTarget: null, thirdPerson: false, spectating: false,
+  stepOffset: 0, landKick: 0, landVel: 0, landW: 14, captureFlash: false, specTarget: null, thirdPerson: false, spectating: false,
   vm: null, vmKey: '', vmBob: 0, swayX: 0, swayY: 0, lastT: 0, fpsT: 0, fpsN: 0, fov: 74, deathT: 0, killer: null,
   specYaw: 0, specPitch: .2, menuT: 0, vmLight: 1, lastFireT: -9,
   async boot() {
@@ -6557,7 +6565,11 @@ const App = {
     const c = lp.cmd, I = Input, free = !this.paused && !Input.typing && Input.locked;
     if (!lp.alive || !free) {
       c.fwd = c.side = 0; c.fire = c.fire2 = false; c.walk = false; c.use = false;
-      if (!lp.alive) { c.duck = false; if (I.mbHit[0]) this.cycleSpec(1); if (I.mbHit[2]) this.cycleSpec(-1); if (I.hit('jump')) this.thirdPerson = !this.thirdPerson; }
+      if (!lp.alive) {
+        c.duck = false; if (I.mbHit[0]) this.cycleSpec(1); if (I.mbHit[2]) this.cycleSpec(-1);
+        // third person starts behind the watched player instead of wherever the orbit was left
+        if (I.hit('jump')) { this.thirdPerson = !this.thirdPerson; if (this.thirdPerson && this.specTarget) { this.specYaw = this.specTarget.yaw; this.specPitch = .25; } }
+      }
       return;
     }
     c.fwd = (I.down('forward') ? 1 : 0) - (I.down('back') ? 1 : 0);
@@ -6591,8 +6603,10 @@ const App = {
   updateCamera(dt) {
     const G = Game, lp = G.local, cam = this.camera, S = Settings.v;
     let fovT = S.fov;
-    this.stepOffset *= Math.exp(-dt * 14); if (Math.abs(this.stepOffset) < .001) this.stepOffset = 0;
-    this.landKick *= Math.exp(-dt * 9);
+    this.stepOffset = clamp(this.stepOffset * Math.exp(-dt * 14), -.6, .6); if (Math.abs(this.stepOffset) < .001) this.stepOffset = 0;
+    // critically damped spring for the landing dip (sub-stepped so low frame rates stay stable)
+    for (let t = dt; t > 1e-6; t -= 1 / 240) { const h = Math.min(t, 1 / 240), w = this.landW; this.landVel += (-w * w * this.landKick - 2 * w * this.landVel) * h; this.landKick += this.landVel * h; }
+    if (Math.abs(this.landKick) < 1e-4 && Math.abs(this.landVel) < 1e-3) this.landKick = this.landVel = 0;
     const sh = FX.shake;
     if (lp && lp.alive) {
       const e = lp.eye(_v1);

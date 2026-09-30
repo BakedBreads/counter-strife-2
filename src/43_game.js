@@ -722,7 +722,8 @@ const Game = {
   intelPush(team, pos, t) { if (!team || team === 'none') return; this.intel[team].push({ pos: pos.clone(), t, site: BotAI.intelSite(pos) }); },
   hint(t, d) { if (this.local) HUD.hint(t, d); },
   stepSmooth(dy) { App.stepOffset -= dy; },
-  landKick(f) { App.landKick = Math.min(.12, f * .006); },
+  // landing dip: kick the camera spring downward so the dip eases in and out instead of snapping
+  landKick(f) { App.landVel = Math.max(App.landVel, Math.min(.12, f * .006) * App.landW * Math.E); },
   muzzlePos(p) { const g = p.model && p.model.gun; if (!g || !p.model.root.visible) return null; return g.userData.muzzle.getWorldPosition(new V3()); },
   vmMuzzleWorld() { return App.vmPointWorld('muzzle'); },
   vmEjectWorld() { return App.vmPointWorld('eject'); }
